@@ -24,13 +24,13 @@
 
         program: lfun.c
 
-        use: lfunc <directory>
+        use: gcc -o lfunc lfun.c; lfunc <directory>
         scans all *.c and *.cc source files in a directory for suspicious
         strncmp function calls
 
         complain, if
-              * at least one argument is a string literal
-              * the last argument is an integer literal
+              * at least one argument is a string literal and
+              * the last argument is an integer literal and
               * the integer doesn't match the length of a string literal
 
         FIXME this code doesn't know about string literal concatenation
