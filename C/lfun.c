@@ -55,6 +55,7 @@
 #define MAXBUF 4096
 size_t arr[ARGCNT];
 unsigned calls = 0;
+unsigned loc = 0;
 int boring = 1;
 
 
@@ -288,6 +289,7 @@ int read_file(const char *path, const struct stat *s, const int typeflag, struct
 			} while ((fcall = strstr(fcall, FUNCTION)) != NULL);
 		}
 	}
+	loc += linecnt;
 	fclose(fp);
 	return 0;
 }
@@ -317,7 +319,7 @@ int main(int argc, char **argv) {
 		perror("nftw");
 		return 1;
 	}
-	printf("parsed %u %s calls\n", calls, FUNCTION);
+	printf("checked %u lines and parsed %u %s calls\n", loc, calls, FUNCTION);
 
 	if (boring) {
 		puts("nothing found!");
