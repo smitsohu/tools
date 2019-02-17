@@ -23,7 +23,7 @@
 /*************************************************
 
         program: lfun.c
-        scans *.c and *.cc source files for suspicious strncmp
+        scans *.c, *.cc and *.cpp source files for suspicious strncmp
         function calls
 
         use: gcc -o lfunc lfun.c; lfunc <file or directory>
@@ -50,7 +50,7 @@
 #define FUNCTION "strncmp"	// function name
 #define ARGCNT 3		// number of function arguments, >= 2
 // scan only files with certain extensions
-#define CHECKEXTENSION ".c", ".cc"
+#define CHECKEXTENSION ".c", ".cc", ".cpp"
 
 #define MAXBUF 4096
 size_t arr[ARGCNT];
@@ -98,6 +98,8 @@ int parse_args(const char *path, const unsigned linecnt, const char *fcall) {
 						closed = 1;
 						break;
 					}
+					else
+						return 1;
 				}
 				ptr++;
 			}
@@ -319,10 +321,10 @@ int main(int argc, char **argv) {
 		perror("nftw");
 		return 1;
 	}
-	printf("checked %u lines and parsed %u %s calls\n", loc, calls, FUNCTION);
+	printf("scanned %u lines, %u %s calls\n", loc, calls, FUNCTION);
 
 	if (boring) {
-		puts("nothing found!");
+		puts("no suspicious pattern was found");
 		return 0;
 	}
 	return 1;
