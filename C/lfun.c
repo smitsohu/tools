@@ -77,13 +77,12 @@ int parse_args(const char *path, const unsigned linecnt, const char *fcall) {
 			tmp++;
 		if (*tmp == '"') {
 			tmp++;
-			int closed = 0;
+			// count escape sequences
+			// and strip closing quotation mark
+			// FIXME string literal concatenation
 			unsigned esc = 0;
 			char *ptr = tmp;
 			while (*ptr) {
-				// count escape sequences
-				// and strip closing quotation mark
-				// FIXME string literal concatenation
 				if (*ptr == '\\') {
 					esc++;
 					if (ptr[1])  // get past the following byte, it could be '\\' or '"'
@@ -93,18 +92,16 @@ int parse_args(const char *path, const unsigned linecnt, const char *fcall) {
 					char *end = ptr + 1;
 					while (*end == ' ' || *end == '\t')
 						end++;
-					if (*end == '\0') {
-						*ptr = '\0';
-						closed = 1;
+					if (*end == '\0')
 						break;
-					}
 					else
 						return 1;
 				}
 				ptr++;
 			}
-			if (!closed)
+			if (*ptr != '"')  // no closing quotation mark
 				return 1;
+			*ptr = '\0';
 
 			arg_len[i] = strlen(tmp) - esc;
 			strlit = 1;
@@ -195,7 +192,10 @@ int parse_str(const char *path, const unsigned linecnt, const char *fcall) {
 	}
 	if (cnt1 || cnt2 != ARGCNT - 1)
 		goto errout;
+
 	// something like strncmp(,,)
+	if (arr[0] == 1)
+		goto errout;
 	int i;
 	for (i = 0; i < ARGCNT - 1; i++) {
 		if (arr[i] + 1 == arr[i + 1])
@@ -299,20 +299,21 @@ int read_file(const char *path, const struct stat *s, const int typeflag, struct
 
 // return value 0: boring
 int main(int argc, char **argv) {
+	// usage
 	if (argc != 2) {
 		printf("usage: %s <file or directory>\n", argv[0]);
 		return 1;
 	}
-	char *name = argv[1];
-
+	// does the file exist?
+	const char *fname = argv[1];
 	struct stat s;
-	if (stat(name, &s) == -1 || (!S_ISDIR(s.st_mode) && !S_ISREG(s.st_mode))) {
-		printf("no file or directory %s\n", name);
+	if (stat(fname, &s) == -1 || (!S_ISDIR(s.st_mode) && !S_ISREG(s.st_mode))) {
+		printf("no file or directory %s\n", fname);
 		return 1;
 	}
-	printf("------------ scanning %s\n", name);
-
-	int rv = nftw(name, read_file, 8, 0);
+	// do the scan
+	printf("-- scanning %s\n", fname);
+	int rv = nftw(fname, read_file, 8, 0);
 	if (rv == 1) {
 		puts("walking the directory tree failed, check your permissions ...");
 		return 1;
@@ -321,8 +322,8 @@ int main(int argc, char **argv) {
 		perror("nftw");
 		return 1;
 	}
-	printf("scanned %u lines, %u %s calls\n", loc, calls, FUNCTION);
-
+	printf("%u lines, %u %s function calls\n", loc, calls, FUNCTION);
+	// nothing found?
 	if (boring) {
 		puts("no suspicious pattern was found");
 		return 0;
