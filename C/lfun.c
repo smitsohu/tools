@@ -101,9 +101,8 @@ int parse_args(const char *path, const unsigned linecnt, const char *fcall) {
 			}
 			if (*ptr != '"')  // no closing quotation mark
 				return 1;
-			*ptr = '\0';
 
-			arg_len[i] = strlen(tmp) - esc;
+			arg_len[i] = (size_t) ((ptr - tmp) -esc);
 			strlit = 1;
 		}
 		tmp = dup + arr[i] + 1;
@@ -258,7 +257,7 @@ int read_file(const char *path, const struct stat *s, const int typeflag, struct
 		if (fcall) {
 			// remove \n
 			char *newline = strrchr(fcall, '\n');
-			if (newline && newline[1] == '\0')
+			if (newline)
 				*newline = '\0';
 			// do the parsing
 			int comment = 0;
