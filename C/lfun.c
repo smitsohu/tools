@@ -33,8 +33,6 @@
               * the last argument is an integer literal and
               * the integer doesn't match the length of a string literal
 
-        FIXME this code doesn't know about string literal concatenation
-
 **************************************************/
 
 
@@ -42,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <assert.h>
@@ -53,158 +52,119 @@
 #define CHECKEXTENSION ".c", ".cc", ".cpp"
 
 #define MAXBUF 4096
-size_t arr[ARGCNT];
-unsigned calls = 0;
+unsigned callcnt = 0;
 unsigned loc = 0;
+unsigned filecnt = 0;
 int boring = 1;
-
-
-// return 0 if parsing was successful, else return 1
-int parse_args(const char *path, const unsigned linecnt, const char *fcall) {
-
-	// proceed with a copy of the string
-	char dup[MAXBUF];
-	strncpy(dup, fcall, MAXBUF);
-	assert(dup[MAXBUF - 1] == '\0');
-
-	size_t arg_len[ARGCNT - 1] = {0};  // lengths of string literals go here
-	char *tmp = dup + 1;  // dup[0] == '('
-	int strlit = 0;
-	int i;
-	for (i = 0; i < ARGCNT - 1; i++) {
-		dup[arr[i]] = '\0';  // comma
-		while (*tmp == ' ' || *tmp == '\t')
-			tmp++;
-		if (*tmp == '"') {
-			tmp++;
-			// count escape sequences
-			// and strip closing quotation mark
-			// FIXME string literal concatenation
-			unsigned esc = 0;
-			char *ptr = tmp;
-			while (*ptr) {
-				if (*ptr == '\\') {
-					esc++;
-					if (ptr[1])  // get past the following byte, it could be '\\' or '"'
-						ptr++;
-				}
-				else if (*ptr == '"') {
-					char *end = ptr + 1;
-					while (*end == ' ' || *end == '\t')
-						end++;
-					if (*end == '\0')
-						break;
-					else
-						return 1;
-				}
-				ptr++;
-			}
-			if (*ptr != '"')  // no closing quotation mark
-				return 1;
-
-			arg_len[i] = (size_t) ((ptr - tmp) -esc);
-			strlit = 1;
-		}
-		tmp = dup + arr[i] + 1;
-	}
-
-	// no string literal, nothing to do
-	if (!strlit)
-		return 0;
-
-	// last argument
-	dup[arr[ARGCNT - 1]] = '\0';  // last closing parenthesis
-	while (*tmp == ' ' || *tmp == '\t')
-		tmp++;
-	if (*tmp == '(')
-		return 1;
-	// variable or function call?
-	if (*tmp < '0' || *tmp > '9')
-		return 0;
-	// there is an integer, extract it
-	char *endptr;
-	unsigned long litlen = strtoul(tmp, &endptr, 0);
-	while (*endptr == ' ' || *endptr == '\t')
-		endptr++;
-	if (*endptr != '\0')
-		return 1;
-
-	for (i = 0; i < ARGCNT - 1; i++) {
-		if (arg_len[i] == litlen)
-			return 0;
-	}
-	strncpy(dup, fcall, MAXBUF);  // output formatting
-	dup[arr[ARGCNT - 1] + 1] = '\0';
-	printf("Bad %s? %s: line %u: %s\n", FUNCTION, path, linecnt, dup);
-	boring = 0;
-	return 0;
-}
 
 
 // return 0 if parsing was successful, else return 1
 int parse_str(const char *path, const unsigned linecnt, const char *fcall) {
 	assert(fcall && *fcall == '(');
+	// proceed with a copy of the string
+	char dup[MAXBUF];
+	strncpy(dup, fcall, MAXBUF);
 
-	// ensure that
-	// * parentheses are balanced
-	// * all arguments are present
-	// along the way pick up relevant indices
-	const char *tmp = fcall;
+	size_t arg_len[ARGCNT - 1] = {0};  // lengths of string literals go here
+
+	char *tmp = dup;
 	unsigned cnt1 = 0;  // count unbalanced parentheses
 	unsigned cnt2 = 0;  // count commas
-	size_t index = 0;
+	int stringlit = 0;  // found string literal or not
 	while (*tmp) {
-		if (*tmp == '(')  // what we know: tmp[0] == '('
+
+		if (*tmp == '(') { // what we know: tmp[0] == '('
 			cnt1++;
+		}
 		else if (*tmp == ')') {
 			cnt1--;
-			if (cnt1 == 0) {
-				arr[ARGCNT - 1] = index;
-				break;
-			}
+			if (cnt1 == 0)
+				// too few commas
+				goto errout;
 		}
-		else if (*tmp == '"') {  // ignore what's inside string literals
+		else if (*tmp == '"' && cnt1 == 1) {
+			// only one string length per function argument
+			if (arg_len[cnt2])
+				goto errout;
+
+			stringlit = 1;
+			unsigned esc = 0;  // count escape sequences
 			tmp++;
-			index++;
+
+			// find end of the string literal
+			char *start = tmp;
 			while (*tmp) {
-				if (*tmp == '"')
-					break;
-				if (*tmp == '\\' && tmp[1]) {  // get past the following byte, it could be '"'
-					tmp++;
-					index++;
+				if (*tmp == '\\') {
+					esc++;
+					// get past the following byte, it could be '"'
+					if (tmp[1])
+						tmp++;
 				}
+				else if (*tmp == '"') {
+					arg_len[cnt2] += (size_t) (tmp - start);
+					// handle string literal concatenation
+					char *q = tmp + 1;
+					while (*q == ' ' || *q == '\t')
+						q++;
+					if (*q == '"') {
+						tmp = ++q;
+						start = q;
+						continue;
+					}
+					else
+						break;
+				}
+
 				tmp++;
-				index++;
 			}
 			if (*tmp != '"')
 				goto errout;
+			// substract escape sequences
+			arg_len[cnt2] -= esc;
 		}
 		else if (*tmp == ',' && cnt1 == 1) {
-			if (cnt2 > ARGCNT - 2)
-				goto errout;
-			arr[cnt2] = index;
 			cnt2++;
+			// the only proper exit from this loop
+			if (cnt2 == ARGCNT - 1)
+				break;
 		}
 
 		tmp++;
-		index++;
 	}
-	if (cnt1 || cnt2 != ARGCNT - 1)
+
+	if (!stringlit)
+		return 0;
+	if (cnt2 != ARGCNT - 1)  // if false, *tmp == ',' is implied
 		goto errout;
 
-	// something like strncmp(,,)
-	if (arr[0] == 1)
+	// last argument
+	tmp++;
+	while (*tmp == ' ' || *tmp == '\t')
+		tmp++;
+	// variable or function call?
+	if (isalpha((unsigned char) *tmp) || *tmp == '_')
+		return 0;
+	if (*tmp < '0' || *tmp > '9')
 		goto errout;
+	// there is an integer, extract it
+	char *endptr;
+	unsigned long len = strtoul(tmp, &endptr, 0);
+	while (*endptr == ' ' || *endptr == '\t')
+		endptr++;
+	if (*endptr++ != ')')
+		goto errout;
+	// output formatting
+	*endptr = '\0';
+
+	// check if integer literal equals length of a string literal
 	int i;
 	for (i = 0; i < ARGCNT - 1; i++) {
-		if (arr[i] + 1 == arr[i + 1])
-			goto errout;
+		if (arg_len[i] == len)
+			return 0;
 	}
 
-	// inspect the function arguments
-	if (parse_args(path, linecnt, fcall))
-		goto errout;
-
+	printf("Bad %s? %s: line %u: %s\n", FUNCTION, path, linecnt, dup);
+	boring = 0;
 	return 0;
 
 errout:
@@ -249,6 +209,7 @@ int read_file(const char *path, const struct stat *s, const int typeflag, struct
 		return 0;
 	}
 	// read the file
+	filecnt++;
 	unsigned linecnt = 0;
 	char buf[MAXBUF];
 	while (fgets(buf, MAXBUF, fp)) {
@@ -274,7 +235,7 @@ int read_file(const char *path, const struct stat *s, const int typeflag, struct
 				}
 				if (comment)
 					break;
-				calls++;
+				callcnt++;
 				static size_t len = strlen(FUNCTION);
 				fcall += len;
 				while (*fcall == ' ' || *fcall == '\t')
@@ -321,7 +282,8 @@ int main(int argc, char **argv) {
 		perror("nftw");
 		return 1;
 	}
-	printf("%u lines, %u %s function calls\n", loc, calls, FUNCTION);
+	printf("%u file(s), %u line(s), %u %s function call(s)\n", filecnt, loc, callcnt, FUNCTION);
+
 	// nothing found?
 	if (boring) {
 		puts("no suspicious pattern was found");
